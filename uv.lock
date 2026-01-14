@@ -406,6 +406,7 @@ source = { editable = "." }
 dependencies = [
     { name = "gymnasium" },
     { name = "numpy" },
+    { name = "ollama" },
     { name = "python-chess" },
     { name = "rich" },
     { name = "sb3-contrib" },
@@ -445,6 +446,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "gymnasium", specifier = ">=0.29.0" },
     { name = "numpy", specifier = ">=1.24.0" },
+    { name = "ollama", specifier = ">=0.6.1" },
     { name = "ollama", marker = "extra == 'llm'", specifier = ">=0.3.0" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.0.0" },
     { name = "prime", marker = "extra == 'pi'" },

@@ -283,7 +283,7 @@ def test_vs_random_with_retries(player, system_prompt: str, num_games: int = 10,
             print(f"  Game {game_num + 1}: LLM ({color}) - {status} in {legal_moves} moves, {total_retries} retries")
 
     return {
-        "win_rate": results["llm_wins"] / num_games,
+        "win_rate": results["llm_wins"] / num_games if num_games > 0 else 0,
         "llm_wins": results["llm_wins"],
         "random_wins": results["random_wins"],
         "draws": results["draws"],
@@ -363,7 +363,7 @@ def test_vs_random(player, system_prompt: str, num_games: int = 10, max_moves: i
             print(f"  Game {game_num + 1}: LLM ({color}) - {state.result} in {moves} moves, {game_illegal} illegal")
 
     return {
-        "win_rate": results["llm_wins"] / num_games,
+        "win_rate": results["llm_wins"] / num_games if num_games > 0 else 0,
         "llm_wins": results["llm_wins"],
         "random_wins": results["random_wins"],
         "draws": results["draws"],
@@ -436,30 +436,32 @@ def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verb
     print(f"Avg response time: {legality_results['avg_time']:.2f}s")
 
     # Test 3: vs Random
-    print(f"\n{'='*60}")
-    if enhanced:
-        print(f"TEST 3: vs Random Opponent ({num_games} games, with retries)")
-        print("="*60)
-        random_results = test_vs_random_with_retries(player, system_prompt, num_games, max_retries=3, verbose=verbose)
-        results["vs_random"] = random_results
-        print(f"\nLLM wins: {random_results['llm_wins']}")
-        print(f"Random wins: {random_results['random_wins']}")
-        print(f"Draws: {random_results['draws']}")
-        print(f"Forfeits (3+ retries): {random_results['forfeits']}")
-        print(f"Win rate: {random_results['win_rate']*100:.1f}%")
-        print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
-        print(f"Avg retries per game: {random_results['avg_retries_per_game']:.1f}")
-    else:
-        print(f"TEST 3: vs Random Opponent ({num_games} games)")
-        print("="*60)
-        random_results = test_vs_random(player, system_prompt, num_games, verbose=verbose)
-        results["vs_random"] = random_results
-        print(f"\nLLM wins: {random_results['llm_wins']}")
-        print(f"Random wins: {random_results['random_wins']}")
-        print(f"Draws: {random_results['draws']}")
-        print(f"Win rate: {random_results['win_rate']*100:.1f}%")
-        print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
-        print(f"Avg illegal moves per game: {random_results['avg_illegal_per_game']:.1f}")
+    random_results = {"win_rate": 0, "llm_wins": 0, "random_wins": 0, "draws": 0}
+    if num_games > 0:
+        print(f"\n{'='*60}")
+        if enhanced:
+            print(f"TEST 3: vs Random Opponent ({num_games} games, with retries)")
+            print("="*60)
+            random_results = test_vs_random_with_retries(player, system_prompt, num_games, max_retries=3, verbose=verbose)
+            results["vs_random"] = random_results
+            print(f"\nLLM wins: {random_results['llm_wins']}")
+            print(f"Random wins: {random_results['random_wins']}")
+            print(f"Draws: {random_results['draws']}")
+            print(f"Forfeits (3+ retries): {random_results['forfeits']}")
+            print(f"Win rate: {random_results['win_rate']*100:.1f}%")
+            print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
+            print(f"Avg retries per game: {random_results['avg_retries_per_game']:.1f}")
+        else:
+            print(f"TEST 3: vs Random Opponent ({num_games} games)")
+            print("="*60)
+            random_results = test_vs_random(player, system_prompt, num_games, verbose=verbose)
+            results["vs_random"] = random_results
+            print(f"\nLLM wins: {random_results['llm_wins']}")
+            print(f"Random wins: {random_results['random_wins']}")
+            print(f"Draws: {random_results['draws']}")
+            print(f"Win rate: {random_results['win_rate']*100:.1f}%")
+            print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
+            print(f"Avg illegal moves per game: {random_results['avg_illegal_per_game']:.1f}")
 
     # Summary
     print(f"\n{'='*60}")
