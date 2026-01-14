@@ -2,12 +2,19 @@
 LLM player wrapper for chess.
 
 Provides a unified interface for LLM-based chess players using local inference.
-Currently supports Ollama for local model serving.
+Supports:
+- Ollama for easy local model serving
+- vLLM for high-performance inference with continuous batching
 
 Usage:
     from chess_env.llm_player import create_player
 
+    # Ollama (simple)
     player = create_player("ollama", model="qwen2.5:0.5b")
+
+    # vLLM (high performance)
+    player = create_player("vllm", model="meta-llama/Llama-3.1-8B-Instruct", base_url="http://localhost:8000/v1")
+
     response = player.generate(observation, system_prompt)
 """
 
@@ -24,6 +31,9 @@ class LLMConfig:
     temperature: float = 0.7
     max_tokens: int = 256
     timeout: float = 60.0
+    # vLLM specific
+    base_url: str = "http://localhost:8000/v1"
+    api_key: str = "EMPTY"  # vLLM doesn't require auth by default
 
 
 class LLMPlayer(Protocol):
@@ -127,6 +137,96 @@ class OllamaPlayer:
             return False
 
 
+class VLLMPlayer:
+    """
+    vLLM-based LLM player using OpenAI-compatible API.
+
+    vLLM provides high-performance inference with:
+    - Continuous batching for better throughput
+    - PagedAttention for efficient memory usage
+    - OpenAI-compatible API
+
+    Start vLLM server:
+        vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
+
+    Or with tensor parallelism for large models:
+        vllm serve meta-llama/Llama-3.1-70B-Instruct --tensor-parallel-size 2
+    """
+
+    def __init__(self, config: Optional[LLMConfig] = None):
+        self.config = config or LLMConfig()
+        self._client = None
+        self._last_response_time: float = 0.0
+
+    @property
+    def model_name(self) -> str:
+        return self.config.model
+
+    @property
+    def last_response_time(self) -> float:
+        """Time taken for last generation in seconds."""
+        return self._last_response_time
+
+    def _ensure_client(self):
+        """Lazily initialize OpenAI client for vLLM."""
+        if self._client is None:
+            try:
+                from openai import OpenAI
+                self._client = OpenAI(
+                    base_url=self.config.base_url,
+                    api_key=self.config.api_key,
+                )
+            except ImportError:
+                raise ImportError(
+                    "openai package not installed. Install with: pip install openai\n"
+                    "Also ensure vLLM server is running: vllm serve <model>"
+                )
+
+    def generate(self, prompt: str, system_prompt: str) -> str:
+        """
+        Generate a response using vLLM.
+
+        Args:
+            prompt: The user prompt (board observation)
+            system_prompt: System instructions for the model
+
+        Returns:
+            Model's response text
+        """
+        self._ensure_client()
+
+        start_time = time.time()
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.config.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+
+            self._last_response_time = time.time() - start_time
+            return response.choices[0].message.content
+
+        except Exception as e:
+            self._last_response_time = time.time() - start_time
+            raise RuntimeError(f"vLLM generation failed: {e}")
+
+    def is_available(self) -> bool:
+        """Check if the vLLM server is reachable and model is loaded."""
+        self._ensure_client()
+        try:
+            models = self._client.models.list()
+            model_ids = [m.id for m in models.data]
+            return any(self.config.model in mid for mid in model_ids)
+        except Exception as e:
+            print(f"Error checking vLLM availability: {e}")
+            return False
+
+
 def parse_move_from_response(response: str) -> Optional[str]:
     """
     Extract move from LLM response.
@@ -150,22 +250,28 @@ def create_player(
     model: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 256,
+    base_url: Optional[str] = None,
     **kwargs
 ) -> LLMPlayer:
     """
     Factory function to create LLM players.
 
     Args:
-        backend: LLM backend to use ("ollama")
+        backend: LLM backend to use ("ollama" or "vllm")
         model: Model name (default depends on backend)
         temperature: Sampling temperature
         max_tokens: Maximum tokens to generate
+        base_url: API base URL (for vllm backend)
 
     Returns:
         LLMPlayer instance
 
-    Example:
+    Examples:
+        # Ollama (simple local inference)
         player = create_player("ollama", model="qwen2.5:0.5b")
+
+        # vLLM (high-performance inference)
+        player = create_player("vllm", model="meta-llama/Llama-3.1-8B-Instruct")
     """
     if backend == "ollama":
         config = LLMConfig(
@@ -176,7 +282,17 @@ def create_player(
         )
         return OllamaPlayer(config)
 
-    raise ValueError(f"Unknown backend: {backend}. Supported: ollama")
+    elif backend == "vllm":
+        config = LLMConfig(
+            model=model or "meta-llama/Llama-3.1-8B-Instruct",
+            temperature=temperature,
+            max_tokens=max_tokens,
+            base_url=base_url or "http://localhost:8000/v1",
+            **kwargs
+        )
+        return VLLMPlayer(config)
+
+    raise ValueError(f"Unknown backend: {backend}. Supported: ollama, vllm")
 
 
 # Model recommendations for benchmarking - organized by size tier

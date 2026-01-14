@@ -423,6 +423,7 @@ dev = [
 ]
 llm = [
     { name = "ollama" },
+    { name = "openai" },
 ]
 pi = [
     { name = "prime" },
@@ -445,6 +446,7 @@ requires-dist = [
     { name = "gymnasium", specifier = ">=0.29.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "ollama", marker = "extra == 'llm'", specifier = ">=0.3.0" },
+    { name = "openai", marker = "extra == 'llm'", specifier = ">=1.0.0" },
     { name = "prime", marker = "extra == 'pi'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },

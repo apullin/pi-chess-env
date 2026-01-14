@@ -7,7 +7,7 @@ Tests:
 2. Move legality rate (50 random positions)
 3. Win rate vs random opponent (10 games)
 
-Usage:
+Usage with Ollama (default):
     # Install ollama first
     brew install ollama
     ollama serve  # in another terminal
@@ -17,6 +17,14 @@ Usage:
     uv run python scripts/benchmark_llm.py qwen2.5:0.5b
     uv run python scripts/benchmark_llm.py qwen2.5:0.5b --games 5
     uv run python scripts/benchmark_llm.py --all  # benchmark all recommended models
+
+Usage with vLLM (high-performance):
+    # Start vLLM server first (in another terminal)
+    vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
+
+    # Run benchmark with vLLM backend
+    uv run python scripts/benchmark_llm.py meta-llama/Llama-3.1-8B-Instruct --backend vllm
+    uv run python scripts/benchmark_llm.py meta-llama/Llama-3.1-8B-Instruct -b vllm --base-url http://localhost:8000/v1
 """
 
 import argparse
@@ -366,7 +374,9 @@ def test_vs_random(player, system_prompt: str, num_games: int = 10, max_moves: i
     }
 
 
-def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verbose: bool = True, enhanced: bool = False, reasoning: bool = False):
+def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verbose: bool = True,
+                  enhanced: bool = False, reasoning: bool = False,
+                  backend: str = "ollama", base_url: str = None):
     """Run full benchmark suite for a model."""
     modes = []
     if enhanced:
@@ -375,20 +385,23 @@ def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verb
         modes.append("REASONING")
     mode = "+".join(modes) if modes else "STANDARD"
     print(f"\n{'='*60}")
-    print(f"BENCHMARKING: {model} ({mode})")
+    print(f"BENCHMARKING: {model} ({mode}) via {backend}")
     print(f"{'='*60}")
 
     # Create player - reasoning models need higher token limits for chain-of-thought
     max_tokens = 2048 if reasoning else 128
     try:
-        player = create_player("ollama", model=model, temperature=0.3, max_tokens=max_tokens)
+        player = create_player(backend, model=model, temperature=0.3, max_tokens=max_tokens, base_url=base_url)
     except Exception as e:
         print(f"Failed to create player: {e}")
         return None
 
     # Check if model is available
     if not player.is_available():
-        print(f"Model {model} not available. Pull it with: ollama pull {model}")
+        if backend == "ollama":
+            print(f"Model {model} not available. Pull it with: ollama pull {model}")
+        else:
+            print(f"Model {model} not available on {backend} server at {base_url or 'default URL'}")
         return None
 
     # Use enhanced prompt if requested
@@ -463,6 +476,10 @@ def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verb
 def main():
     parser = argparse.ArgumentParser(description="Benchmark LLM chess playing ability")
     parser.add_argument("model", nargs="?", type=str, help="Model name (e.g., qwen2.5:0.5b)")
+    parser.add_argument("--backend", "-b", type=str, default="ollama", choices=["ollama", "vllm"],
+                        help="Inference backend (default: ollama)")
+    parser.add_argument("--base-url", type=str, default=None,
+                        help="API base URL for vllm (default: http://localhost:8000/v1)")
     parser.add_argument("--all", action="store_true", help="Benchmark all recommended models")
     parser.add_argument("--games", type=int, default=10, help="Number of games vs random")
     parser.add_argument("--positions", type=int, default=50, help="Number of positions for legality test")
@@ -519,7 +536,7 @@ def main():
         all_results = {}
         for model in models_to_test.keys():
             try:
-                results = run_benchmark(model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning)
+                results = run_benchmark(model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning, args.backend, args.base_url)
                 if results:
                     all_results[model] = results
             except Exception as e:
@@ -539,7 +556,7 @@ def main():
                 print(f"{model:<20} {mate:>11.1f}% {legal:>11.1f}% {win:>11.1f}%")
 
     elif args.model:
-        run_benchmark(args.model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning)
+        run_benchmark(args.model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning, args.backend, args.base_url)
     else:
         parser.print_help()
         print("\nExample: uv run python scripts/benchmark_llm.py qwen2.5:0.5b")
