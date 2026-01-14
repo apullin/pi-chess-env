@@ -179,65 +179,153 @@ def create_player(
     raise ValueError(f"Unknown backend: {backend}. Supported: ollama")
 
 
-# Model recommendations for benchmarking
+# Model recommendations for benchmarking - organized by size tier
+# GH200 has 96GB VRAM, can run up to ~70B models
+
 RECOMMENDED_MODELS = {
+    # Tier 1: Small (< 4B) - fast iteration, local testing
     "qwen2.5:0.5b": {
         "params": "0.5B",
         "size_gb": 0.4,
         "description": "Smallest/fastest, good for testing",
+        "tier": "small",
     },
     "qwen2.5:1.5b": {
         "params": "1.5B",
         "size_gb": 1.0,
-        "description": "Mid-size Qwen, better reasoning",
+        "description": "Mid-size Qwen",
+        "tier": "small",
     },
     "llama3.2:1b": {
         "params": "1B",
         "size_gb": 1.3,
-        "description": "Small Llama, different architecture",
+        "description": "Small Llama",
+        "tier": "small",
     },
     "llama3.2:3b": {
         "params": "3B",
         "size_gb": 2.0,
-        "description": "Larger Llama, better performance",
+        "description": "Larger Llama, good local baseline",
+        "tier": "small",
     },
     "phi3:mini": {
         "params": "3.8B",
         "size_gb": 2.3,
         "description": "Microsoft Phi-3, strong for size",
+        "tier": "small",
     },
     "gemma3:4b": {
         "params": "4B",
         "size_gb": 3.0,
-        "description": "Google Gemma 3, efficient architecture",
+        "description": "Google Gemma 3, efficient",
+        "tier": "small",
+    },
+    # Tier 2: Medium (4-15B) - good balance
+    "qwen2.5:7b": {
+        "params": "7B",
+        "size_gb": 4.7,
+        "description": "Qwen 2.5 7B, solid mid-range",
+        "tier": "medium",
+    },
+    "llama3.1:8b": {
+        "params": "8B",
+        "size_gb": 4.9,
+        "description": "Llama 3.1 8B, strong baseline",
+        "tier": "medium",
     },
     "gemma3:12b": {
         "params": "12B",
         "size_gb": 8.1,
-        "description": "Google Gemma 3, very strong for size",
+        "description": "Google Gemma 3 12B, very capable",
+        "tier": "medium",
+    },
+    "qwen2.5:14b": {
+        "params": "14B",
+        "size_gb": 9.0,
+        "description": "Qwen 2.5 14B",
+        "tier": "medium",
+    },
+    # Tier 3: Large (15-35B) - needs beefy GPU
+    "gemma3:27b": {
+        "params": "27B",
+        "size_gb": 17.0,
+        "description": "Google Gemma 3 27B, very strong",
+        "tier": "large",
+    },
+    "qwen2.5:32b": {
+        "params": "32B",
+        "size_gb": 20.0,
+        "description": "Qwen 2.5 32B",
+        "tier": "large",
+    },
+    # Tier 4: XL (70B+) - GH200 territory
+    "llama3.1:70b": {
+        "params": "70B",
+        "size_gb": 43.0,
+        "description": "Llama 3.1 70B, flagship open model",
+        "tier": "xl",
+    },
+    "llama3.3:70b": {
+        "params": "70B",
+        "size_gb": 43.0,
+        "description": "Llama 3.3 70B, latest flagship",
+        "tier": "xl",
+    },
+    "qwen2.5:72b": {
+        "params": "72B",
+        "size_gb": 47.0,
+        "description": "Qwen 2.5 72B, very strong",
+        "tier": "xl",
     },
 }
 
 # Reasoning models - use with --reasoning flag for higher token limits
+# These models do chain-of-thought before answering
 REASONING_MODELS = {
+    # Small reasoning
     "deepseek-r1:1.5b": {
         "params": "1.5B",
         "size_gb": 1.1,
-        "description": "DeepSeek-R1 distilled, smallest reasoning model",
+        "description": "DeepSeek-R1 distilled, smallest",
+        "tier": "small",
     },
     "deepseek-r1:7b": {
         "params": "7B",
         "size_gb": 4.7,
         "description": "DeepSeek-R1 distilled, good balance",
+        "tier": "medium",
     },
     "deepseek-r1:8b": {
         "params": "8B",
         "size_gb": 4.9,
         "description": "DeepSeek-R1 distilled from Llama",
+        "tier": "medium",
     },
+    # Medium reasoning
     "deepseek-r1:14b": {
         "params": "14B",
         "size_gb": 9.0,
-        "description": "DeepSeek-R1 distilled, stronger reasoning",
+        "description": "DeepSeek-R1 distilled, stronger",
+        "tier": "medium",
+    },
+    # Large reasoning
+    "deepseek-r1:32b": {
+        "params": "32B",
+        "size_gb": 20.0,
+        "description": "DeepSeek-R1 distilled, very capable",
+        "tier": "large",
+    },
+    "qwq:32b": {
+        "params": "32B",
+        "size_gb": 20.0,
+        "description": "Qwen QwQ 32B, strong reasoning",
+        "tier": "large",
+    },
+    # XL reasoning - GH200 territory
+    "deepseek-r1:70b": {
+        "params": "70B",
+        "size_gb": 43.0,
+        "description": "DeepSeek-R1 distilled 70B, flagship",
+        "tier": "xl",
     },
 }

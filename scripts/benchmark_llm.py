@@ -469,26 +469,53 @@ def main():
     parser.add_argument("--quiet", "-q", action="store_true", help="Less verbose output")
     parser.add_argument("--enhanced", "-e", action="store_true", help="Use enhanced prompt + retry logic")
     parser.add_argument("--reasoning", "-r", action="store_true", help="Reasoning model mode (higher token limit)")
+    parser.add_argument("--tier", "-t", type=str, choices=["small", "medium", "large", "xl", "all"], default="all",
+                        help="Only test models of this tier (default: all)")
     parser.add_argument("--list-models", action="store_true", help="List recommended models")
     args = parser.parse_args()
 
     if args.list_models:
-        print("\nRecommended models for benchmarking:")
-        print("-" * 50)
-        for model, info in RECOMMENDED_MODELS.items():
-            print(f"  {model:<20} {info['params']:>6} params, ~{info['size_gb']:.1f}GB")
-            print(f"    {info['description']}")
-        print("\nReasoning models (use with --reasoning flag):")
-        print("-" * 50)
-        for model, info in REASONING_MODELS.items():
-            print(f"  {model:<20} {info['params']:>6} params, ~{info['size_gb']:.1f}GB")
-            print(f"    {info['description']}")
-        print("\nInstall with: ollama pull <model>")
+        print("\n" + "="*70)
+        print("RECOMMENDED MODELS (by tier)")
+        print("="*70)
+        for tier in ["small", "medium", "large", "xl"]:
+            tier_models = {k: v for k, v in RECOMMENDED_MODELS.items() if v.get("tier") == tier}
+            if tier_models:
+                print(f"\n[{tier.upper()}] - {'GH200 recommended' if tier in ['large', 'xl'] else 'Local OK'}")
+                print("-" * 50)
+                for model, info in tier_models.items():
+                    print(f"  {model:<20} {info['params']:>6} params, ~{info['size_gb']:.1f}GB")
+
+        print("\n" + "="*70)
+        print("REASONING MODELS (use with --reasoning flag)")
+        print("="*70)
+        for tier in ["small", "medium", "large", "xl"]:
+            tier_models = {k: v for k, v in REASONING_MODELS.items() if v.get("tier") == tier}
+            if tier_models:
+                print(f"\n[{tier.upper()}]")
+                print("-" * 50)
+                for model, info in tier_models.items():
+                    print(f"  {model:<20} {info['params']:>6} params, ~{info['size_gb']:.1f}GB")
+
+        print("\n" + "="*70)
+        print("USAGE EXAMPLES")
+        print("="*70)
+        print("  ollama pull <model>                    # Install a model")
+        print("  benchmark_llm.py --all --tier small    # Test all small models")
+        print("  benchmark_llm.py --all --tier xl       # Test 70B models (GH200)")
+        print("  benchmark_llm.py --all --reasoning     # Test all reasoning models")
+        print("  benchmark_llm.py deepseek-r1:70b -r    # Single reasoning model")
         return
 
     if args.all:
         # Benchmark all recommended models (or reasoning models with --reasoning)
         models_to_test = REASONING_MODELS if args.reasoning else RECOMMENDED_MODELS
+
+        # Filter by tier if specified
+        if args.tier != "all":
+            models_to_test = {k: v for k, v in models_to_test.items() if v.get("tier") == args.tier}
+            print(f"Filtering to tier: {args.tier} ({len(models_to_test)} models)")
+
         all_results = {}
         for model in models_to_test.keys():
             try:
