@@ -39,6 +39,14 @@ from chess_env.self_play import SelfPlayWrapper, Trajectory, create_random_polic
 from chess_env.network import ChessNet, SmallChessNet, TinyChessNet
 from chess_env.sb3_training import train as sb3_train, load_model, make_vec_env
 from chess_env.verifiers_env import ChessTextEnv, ChessTextConfig, load_environment
+from chess_env.llm_player import (
+    create_player,
+    OllamaPlayer,
+    LLMConfig,
+    parse_move_from_response,
+    RECOMMENDED_MODELS,
+    REASONING_MODELS,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -65,4 +73,11 @@ __all__ = [
     "sb3_train",
     "load_model",
     "make_vec_env",
+    # LLM Players
+    "create_player",
+    "OllamaPlayer",
+    "LLMConfig",
+    "parse_move_from_response",
+    "RECOMMENDED_MODELS",
+    "REASONING_MODELS",
 ]

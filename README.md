@@ -124,6 +124,47 @@ ChessTensorEnv (Gymnasium)
 - [ ] v0.2: ChessTextEnv for LLM agents (`prime-rl` integration)
 - [ ] v0.3: Curriculum learning (MateIn1, KQK endgames)
 
+## LLM Interface Concept (v0.2 Planning)
+
+The text/LLM interface opens up several possible directions:
+
+**Benchmarking (no training)** - Evaluate how well various LLMs play chess out of the box. Metrics: legal move rate, win rate vs random, win rate vs Stockfish. Answers "how good is GPT-4 at chess?"
+
+**RL Fine-tuning** - Take a base LLM (Llama 8B, Qwen, etc.) and RL fine-tune it to play better. LoRA is the typical approach - efficient, doesn't destroy base capabilities. This is what `prime-rl` / `vf-rl` are designed for.
+
+**Curriculum** - Makes RL tractable. Start with "just output legal moves" (high reward for legality), then "solve mate-in-1", then full games. Prevents the death spiral where everything is illegal and there's no learning signal.
+
+### The Format
+
+`ChessTextEnv` presents the board as text:
+```
+=== Chess ===
+r n b q k b n r
+p p p p p p p p
+. . . . . . . .
+. . . . . . . .
+. . . . P . . .
+. . . . . . . .
+P P P P . P P P
+R N B Q K B N R
+
+FEN: rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+Side to move: Black
+Legal moves (20): a6, a5, b6, b5, ... Nf6, Nh6
+
+Respond with your move in <move>SAN</move> format.
+```
+
+The LLM responds with `<move>e5</move>`. Rewards: +1 win, -1 loss, -0.2 illegal move.
+
+### Workflow
+
+1. `prime env install apullin/chess`
+2. Configure `prime-rl` with ChessTextEnv
+3. Pick base model (e.g., `meta-llama/Llama-3-8B-Instruct`)
+4. Run RL training with LoRA
+5. Model learns legal moves first, then strategy
+
 ## License
 
 MIT

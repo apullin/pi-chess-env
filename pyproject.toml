@@ -1,5 +1,5 @@
 [project]
-name = "chess"
+name = "chess-env"
 version = "0.1.2"
 description = "AlphaZero-style chess environment for RL training with Prime Intellect integration"
 readme = "README.md"
@@ -46,6 +46,9 @@ train = [
     "tensorboard>=2.14.0",
     "wandb>=0.15.0",
     "tqdm>=4.65.0",
+]
+llm = [
+    "ollama>=0.3.0",
 ]
 
 [project.urls]
