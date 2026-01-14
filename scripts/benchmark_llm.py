@@ -23,6 +23,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import chess
 import numpy as np
@@ -366,7 +367,104 @@ def test_vs_random(player, system_prompt: str, num_games: int = 10, max_moves: i
     }
 
 
-def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verbose: bool = True, enhanced: bool = False, reasoning: bool = False):
+def _play_single_game(args):
+    """Play a single game - helper for parallel execution."""
+    game_num, player, system_prompt, max_moves = args
+    config = ChessTextConfig(max_moves=max_moves)
+    env = ChessTextEnv(config)
+
+    prompt, state = env.reset()
+    llm_plays_white = (game_num % 2 == 0)
+    moves = 0
+    game_illegal = 0
+    total_time = 0.0
+
+    while not state.done:
+        is_llm_turn = (state.board.turn == chess.WHITE) == llm_plays_white
+
+        if is_llm_turn:
+            start = time.time()
+            response = player.generate(prompt, system_prompt)
+            elapsed = time.time() - start
+            total_time += elapsed
+        else:
+            legal_moves = list(state.board.legal_moves)
+            if not legal_moves:
+                break
+            move = np.random.choice(legal_moves)
+            response = f"<move>{state.board.san(move)}</move>"
+
+        prompt, state, done, reward, info = env.step(response, state)
+        moves += 1
+
+        if is_llm_turn and info.get("error"):
+            game_illegal += 1
+
+        if moves >= max_moves:
+            break
+
+    return {
+        "game_num": game_num,
+        "llm_plays_white": llm_plays_white,
+        "result": state.result,
+        "moves": moves,
+        "illegal": game_illegal,
+        "time": total_time,
+    }
+
+
+def test_vs_random_parallel(player, system_prompt: str, num_games: int = 10, max_moves: int = 200,
+                            num_workers: int = 4, verbose: bool = False) -> dict:
+    """
+    Test LLM against random opponent with parallel game execution.
+    """
+    results = {"llm_wins": 0, "random_wins": 0, "draws": 0}
+    game_lengths = []
+    illegal_moves = []
+    total_time = 0.0
+
+    # Prepare args for each game
+    game_args = [(i, player, system_prompt, max_moves) for i in range(num_games)]
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(_play_single_game, args) for args in game_args]
+
+        for future in as_completed(futures):
+            game = future.result()
+            game_lengths.append(game["moves"])
+            illegal_moves.append(game["illegal"])
+            total_time += game["time"]
+
+            if game["result"] == "1-0":
+                if game["llm_plays_white"]:
+                    results["llm_wins"] += 1
+                else:
+                    results["random_wins"] += 1
+            elif game["result"] == "0-1":
+                if not game["llm_plays_white"]:
+                    results["llm_wins"] += 1
+                else:
+                    results["random_wins"] += 1
+            else:
+                results["draws"] += 1
+
+            if verbose:
+                color = "White" if game["llm_plays_white"] else "Black"
+                print(f"  Game {game['game_num'] + 1}: LLM ({color}) - {game['result']} in {game['moves']} moves, {game['illegal']} illegal")
+
+    return {
+        "win_rate": results["llm_wins"] / num_games,
+        "llm_wins": results["llm_wins"],
+        "random_wins": results["random_wins"],
+        "draws": results["draws"],
+        "num_games": num_games,
+        "avg_game_length": np.mean(game_lengths),
+        "avg_illegal_per_game": np.mean(illegal_moves),
+        "avg_move_time": total_time / sum(game_lengths) if sum(game_lengths) > 0 else 0,
+    }
+
+
+def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verbose: bool = True, enhanced: bool = False, reasoning: bool = False, parallel: int = 0):
     """Run full benchmark suite for a model."""
     modes = []
     if enhanced:
@@ -436,6 +534,17 @@ def run_benchmark(model: str, num_games: int = 10, num_positions: int = 50, verb
         print(f"Win rate: {random_results['win_rate']*100:.1f}%")
         print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
         print(f"Avg retries per game: {random_results['avg_retries_per_game']:.1f}")
+    elif parallel > 0:
+        print(f"TEST 3: vs Random Opponent ({num_games} games, {parallel} workers)")
+        print("="*60)
+        random_results = test_vs_random_parallel(player, system_prompt, num_games, num_workers=parallel, verbose=verbose)
+        results["vs_random"] = random_results
+        print(f"\nLLM wins: {random_results['llm_wins']}")
+        print(f"Random wins: {random_results['random_wins']}")
+        print(f"Draws: {random_results['draws']}")
+        print(f"Win rate: {random_results['win_rate']*100:.1f}%")
+        print(f"Avg game length: {random_results['avg_game_length']:.1f} moves")
+        print(f"Avg illegal moves per game: {random_results['avg_illegal_per_game']:.1f}")
     else:
         print(f"TEST 3: vs Random Opponent ({num_games} games)")
         print("="*60)
@@ -471,6 +580,8 @@ def main():
     parser.add_argument("--reasoning", "-r", action="store_true", help="Reasoning model mode (higher token limit)")
     parser.add_argument("--tier", "-t", type=str, choices=["small", "medium", "large", "xl", "all"], default="all",
                         help="Only test models of this tier (default: all)")
+    parser.add_argument("--parallel", "-p", type=int, default=0,
+                        help="Run games in parallel with N workers (default: 0 = sequential)")
     parser.add_argument("--list-models", action="store_true", help="List recommended models")
     args = parser.parse_args()
 
@@ -519,7 +630,7 @@ def main():
         all_results = {}
         for model in models_to_test.keys():
             try:
-                results = run_benchmark(model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning)
+                results = run_benchmark(model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning, args.parallel)
                 if results:
                     all_results[model] = results
             except Exception as e:
@@ -539,7 +650,7 @@ def main():
                 print(f"{model:<20} {mate:>11.1f}% {legal:>11.1f}% {win:>11.1f}%")
 
     elif args.model:
-        run_benchmark(args.model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning)
+        run_benchmark(args.model, args.games, args.positions, not args.quiet, args.enhanced, args.reasoning, args.parallel)
     else:
         parser.print_help()
         print("\nExample: uv run python scripts/benchmark_llm.py qwen2.5:0.5b")
