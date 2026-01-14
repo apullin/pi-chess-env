@@ -163,7 +163,7 @@ class TestSelfPlayWrapper:
 
     def test_rewards_sum_to_zero_or_are_terminal(self):
         """In zero-sum game, rewards should balance or be terminal."""
-        env = ChessTensorEnv(max_moves=100)
+        env = ChessTensorEnv(max_moves=100, reward_shaping=False)
         wrapper = SelfPlayWrapper(env)
         policy = create_random_policy()
 
