@@ -342,6 +342,7 @@ def load_environment(
     include_legal_moves: bool = True,
     allow_think: bool = True,
     max_moves: int = 400,
+    rubric: str = "legality",
     **kwargs,
 ):
     """
@@ -353,6 +354,10 @@ def load_environment(
         include_legal_moves: Show legal moves in observation
         allow_think: Allow <think>...</think> tags
         max_moves: Maximum moves per game
+        rubric: Which rubric to use for scoring:
+            - "legality": Reward legal moves, penalize illegal (Phase 1)
+            - "game_outcome": Sparse reward at game end (Phase 2)
+            - "puzzle": Reward correct puzzle solutions (Phase 3)
 
     Returns:
         A verifiers-compatible environment object
@@ -368,7 +373,7 @@ def load_environment(
         max_moves=max_moves,
     )
 
-    return ChessVerifiersEnv(config)
+    return ChessVerifiersEnv(config, rubric_type=rubric)
 
 
 if VERIFIERS_AVAILABLE:
@@ -381,15 +386,27 @@ if VERIFIERS_AVAILABLE:
         Prime Intellect's training and evaluation infrastructure.
         """
 
-        def __init__(self, config: Optional[ChessTextConfig] = None):
+        def __init__(
+            self,
+            config: Optional[ChessTextConfig] = None,
+            rubric_type: str = "legality",
+        ):
             self.config = config or ChessTextConfig()
             self.text_env = ChessTextEnv(self.config)
             self.system_prompt = create_system_prompt(self.config)
+            self.rubric_type = rubric_type
 
         async def setup_state(self, **kwargs) -> State:
             """Initialize state for a new episode."""
             _, chess_state = self.text_env.reset()
-            return {"chess": chess_state, "turn": 0}
+            return {
+                "chess": chess_state,
+                "turn": 0,
+                "total_reward": 0.0,
+                "legal_moves": 0,
+                "illegal_moves": 0,
+                "format_errors": 0,
+            }
 
         async def env_response(
             self, messages: Messages, state: State, **kwargs
@@ -417,16 +434,24 @@ if VERIFIERS_AVAILABLE:
                 response, chess_state
             )
 
+            # Track statistics
+            if info.get("error") == "no_move_tag":
+                state["format_errors"] = state.get("format_errors", 0) + 1
+            elif info.get("error") == "illegal_move":
+                state["illegal_moves"] = state.get("illegal_moves", 0) + 1
+            else:
+                state["legal_moves"] = state.get("legal_moves", 0) + 1
+
             # Update state
             state["chess"] = chess_state
             state["turn"] = state.get("turn", 0) + 1
             state["last_reward"] = reward
             state["last_info"] = info
+            state["total_reward"] = state.get("total_reward", 0.0) + reward
 
             if done:
                 state["done"] = True
                 state["result"] = chess_state.result
-                state["total_reward"] = reward  # Simplified; full version tracks cumulative
 
             # Add observation as user message
             new_msg = {"role": "user", "content": observation}
@@ -440,18 +465,95 @@ if VERIFIERS_AVAILABLE:
             """
             Get the rubric for scoring responses.
 
-            The rubric evaluates:
-            1. Format: Did the response contain <move>...</move>?
-            2. Legality: Was the move legal?
-            3. Outcome: Win/draw/loss at game end
+            Returns different rubrics based on rubric_type:
+            - "legality": Dense rewards for legal moves (Phase 1)
+            - "game_outcome": Sparse reward at game end (Phase 2)
+            - "combined": Mix of legality + outcome (Phase 2b)
+            """
+            if self.rubric_type == "legality":
+                return self._legality_rubric()
+            elif self.rubric_type == "game_outcome":
+                return self._game_outcome_rubric()
+            elif self.rubric_type == "combined":
+                return self._combined_rubric()
+            else:
+                raise ValueError(f"Unknown rubric type: {self.rubric_type}")
+
+        def _legality_rubric(self) -> vf.Rubric:
+            """
+            Phase 1: Reward legal moves, penalize illegal.
+
+            Scoring:
+            - Legal move: +1.0
+            - Illegal move: -0.2
+            - Format error: -0.5
             """
 
             def score_response(messages: Messages, state: State) -> float:
-                """Score a single response."""
-                reward = state.get("last_reward", 0.0)
-                return reward
+                info = state.get("last_info", {})
+                if info.get("error") == "no_move_tag":
+                    return -0.5
+                elif info.get("error") == "illegal_move":
+                    return -0.2
+                else:
+                    return 1.0
 
             return vf.Rubric(
-                name="chess_outcome",
+                name="chess_legality",
+                score_fn=score_response,
+            )
+
+        def _game_outcome_rubric(self) -> vf.Rubric:
+            """
+            Phase 2: Sparse reward at game end only.
+
+            Scoring (at game end):
+            - Win: +1.0
+            - Draw: 0.0
+            - Loss: -1.0
+            - During game: 0.0
+            """
+
+            def score_response(messages: Messages, state: State) -> float:
+                if not state.get("done", False):
+                    return 0.0
+                return state.get("last_reward", 0.0)
+
+            return vf.Rubric(
+                name="chess_game_outcome",
+                score_fn=score_response,
+            )
+
+        def _combined_rubric(self) -> vf.Rubric:
+            """
+            Phase 2b: Legality bonus + game outcome.
+
+            Combines dense legality signal with sparse outcome.
+            - Legal move: +0.1
+            - Illegal move: -0.2
+            - Win: +1.0
+            - Loss: -1.0
+            """
+
+            def score_response(messages: Messages, state: State) -> float:
+                info = state.get("last_info", {})
+                score = 0.0
+
+                # Legality component (scaled down)
+                if info.get("error") == "no_move_tag":
+                    score -= 0.5
+                elif info.get("error") == "illegal_move":
+                    score -= 0.2
+                else:
+                    score += 0.1
+
+                # Game outcome component
+                if state.get("done", False):
+                    score += state.get("last_reward", 0.0)
+
+                return score
+
+            return vf.Rubric(
+                name="chess_combined",
                 score_fn=score_response,
             )

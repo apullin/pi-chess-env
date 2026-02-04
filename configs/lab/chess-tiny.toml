@@ -1,0 +1,23 @@
+# Experiment: Can the smallest models learn anything?
+# Goal: See if RL can teach chess to a tiny model
+#
+# This is the "tensor model through ASCII interface" experiment.
+# If a 0.5B model can improve at all, that's interesting.
+
+model = "Qwen/Qwen2.5-0.5B-Instruct"  # 10% baseline legality
+max_steps = 1000
+batch_size = 512  # Can afford larger batch with tiny model
+rollouts_per_example = 16
+
+[sampling]
+max_tokens = 64  # Even shorter for tiny model
+temperature = 0.8  # Slightly higher exploration
+
+[[env]]
+id = "apullin/chess"
+args = { rubric = "legality", max_moves = 1, include_legal_moves = true }
+
+# Research questions:
+# - Can 0.5B model improve from 10% baseline?
+# - How fast does it learn vs larger models?
+# - Does it plateau? Where?
